@@ -1,9 +1,10 @@
 use std::fs;
-use std::io::Stdout;
+use std::io::{BufWriter, Stdout};
 use std::io::{Write, stdout};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
 use anyhow::Ok;
 use anyhow::Result;
 use anyhow::bail;
@@ -41,13 +42,17 @@ struct Args {
     /// Number of times to greet
     #[arg(short, long)]
     file_path: String,
+
+    #[arg(short, long, default_value_t = 90)]
+    tick_speed: u64,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 struct Cell {
     alive: bool,
 }
 
+#[derive(Debug)]
 struct PlayGrid {
     cells: Vec<Vec<Cell>>,
     width: usize,
@@ -74,9 +79,9 @@ impl PlayGrid {
         }
     }
 
-    fn render(&self, out: &mut Stdout) -> Result<()> {
+    fn render(&self, out: &mut BufWriter<Stdout>) -> Result<()> {
+        out.queue(crossterm::terminal::BeginSynchronizedUpdate)?;
         out.queue(crossterm::cursor::MoveTo(0, 0))?;
-
         for (row_index, cell_row) in self.cells.iter().enumerate() {
             for cell in cell_row {
                 if !cell.alive {
@@ -87,6 +92,7 @@ impl PlayGrid {
             }
             out.queue(Print("\r\n"))?;
         }
+        out.queue(crossterm::terminal::EndSynchronizedUpdate)?;
 
         out.flush()?;
         Ok(())
@@ -143,28 +149,44 @@ impl PlayGrid {
     }
 
     fn write_starting_state(&mut self, starting_state: &String) -> Result<()> {
-        for (row_index, line) in starting_state
-            .lines()
-            .filter(|l| !l.starts_with('!'))
-            .enumerate()
-        {
+        let starting_state_comments_removed =
+            starting_state.lines().filter(|l| !l.starts_with('!'));
+
+        let largest_row = starting_state_comments_removed
+            .map(|l| l.len())
+            .max()
+            .context("Largest row calulcation error")?;
+
+        if self.height < starting_state_comments_removed.count() || self.width < 1 {
+            bail!(
+                "Grid is not large enough to hold selected .cell file. Grid Row Size: {} File Row Size: {} Grid Column Size: {} File Column Size: {}",
+                self.height,
+                starting_state.len(),
+                self.width,
+                largest_row
+            );
+        }
+
+        for (row_index, line) in starting_state_comments_removed.enumerate() {
             for (col_index, ch) in line.chars().enumerate() {
                 if ch == '.' {
                     self.cells[row_index][col_index].alive = false;
                 } else if ch == 'O' {
                     self.cells[row_index][col_index].alive = true;
                 } else {
-                    bail!("Missing attribute");
+                    bail!(
+                        "Incorrect character found in file. File must be .cell format. https://conwaylife.com/wiki/"
+                    );
                 }
             }
         }
 
-        Ok(());
+        Ok(())
     }
 }
 
 struct Terminal {
-    out: Stdout,
+    out: BufWriter<Stdout>,
     exited: bool,
 }
 
@@ -172,7 +194,7 @@ impl Terminal {
     fn new() -> Self {
         Self {
             exited: false,
-            out: stdout(),
+            out: BufWriter::new(stdout()),
         }
     }
     fn setup_terminal(&mut self) -> Result<()> {
@@ -214,13 +236,13 @@ fn main() -> Result<()> {
     term.setup_terminal()?;
 
     let mut buffer1: PlayGrid = PlayGrid::new(
-        vec![vec![Cell::default(); args.rows]; args.columns],
+        vec![vec![Cell::default(); args.columns]; args.rows],
         args.columns,
         args.rows,
     );
 
     let mut buffer2: PlayGrid = PlayGrid::new(
-        vec![vec![Cell::default(); args.rows]; args.columns],
+        vec![vec![Cell::default(); args.columns]; args.rows],
         args.columns,
         args.rows,
     );
@@ -228,30 +250,28 @@ fn main() -> Result<()> {
     // Parse initial state
     let stating_state = fs::read_to_string(args.file_path)?;
 
-    buffer1.write_starting_state(&stating_state);
+    buffer1.write_starting_state(&stating_state)?;
 
     let mut active_buffer = &mut buffer1;
     let mut inactive_buffer = &mut buffer2;
-    // loop {
-    //     active_buffer.render(&mut term.out)?;
-    //     active_buffer.evaluate_into(inactive_buffer);
-    //     std::mem::swap(&mut active_buffer, &mut inactive_buffer);
-    //     std::thread::sleep(Duration::from_millis(90));
+    loop {
+        active_buffer.render(&mut term.out)?;
+        active_buffer.evaluate_into(inactive_buffer);
+        std::mem::swap(&mut active_buffer, &mut inactive_buffer);
+        std::thread::sleep(Duration::from_millis(args.tick_speed));
 
-    //     if poll(Duration::from_millis(10))? {
-    //         // It's guaranteed that the `read()` won't block when the `poll()`
-    //         // function returns `true`
-    //         if let Event::Key(k) = read()? {
-    //             if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) {
-    //                 break;
-    //             }
-    //         }
-    //     }
-    // }
-    // or using functions
+        if poll(Duration::from_millis(10))? {
+            // It's guaranteed that the `read()` won't block when the `poll()`
+            // function returns `true`
+            if let Event::Key(k) = read()? {
+                if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) {
+                    break;
+                }
+            }
+        }
+    }
 
     term.teardown_terminal()?;
-    println!("{}", stating_state);
 
     Ok(())
 }
