@@ -1,29 +1,22 @@
 use std::fs;
 use std::io::{BufWriter, Stdout};
 use std::io::{Write, stdout};
-use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::Ok;
 use anyhow::Result;
 use anyhow::bail;
+use crossterm::QueueableCommand;
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{KeyCode, KeyModifiers};
 use crossterm::style::Stylize;
 use crossterm::{
-    ExecutableCommand,
-    cursor::{DisableBlinking, EnableBlinking, MoveTo, RestorePosition, SavePosition},
-    event::{
-        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
-        EnableFocusChange, EnableMouseCapture, Event, poll, read,
-    },
-    execute,
-    style::{self, Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
-    terminal::Clear,
+    cursor::{DisableBlinking, EnableBlinking},
+    event::{Event, poll, read},
+    style::{self, Color, Print},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 };
-use crossterm::{QueueableCommand, queue};
 
 use clap::Parser;
 
@@ -32,11 +25,11 @@ use clap::Parser;
 #[command(version, about, long_about = None)]
 struct Args {
     /// Name of the person to greet
-    #[arg(short, long, default_value_t = 20)]
+    #[arg(short, long, default_value_t = 120)]
     rows: usize,
 
     /// Number of times to greet
-    #[arg(short, long, default_value_t = 20)]
+    #[arg(short, long, default_value_t = 240)]
     columns: usize,
 
     /// Number of times to greet
@@ -58,6 +51,8 @@ struct PlayGrid {
     grid_cols: usize,
     grid_rows: usize,
     grid_offsets: [(i32, i32); 8],
+    alive_color: Color,
+    dead_color: Color,
 }
 
 impl PlayGrid {
@@ -76,18 +71,34 @@ impl PlayGrid {
                 (1, 0),
                 (1, 1),
             ],
+            alive_color: Color::Green,
+            dead_color: Color::Black,
         }
     }
 
     fn render(&self, out: &mut BufWriter<Stdout>) -> Result<()> {
         out.queue(crossterm::terminal::BeginSynchronizedUpdate)?;
         out.queue(crossterm::cursor::MoveTo(0, 0))?;
-        for (row_index, cell_row) in self.cells.iter().enumerate() {
-            for cell in cell_row {
-                if !cell.alive {
-                    out.queue(style::PrintStyledContent("█".black()))?;
+        for (row_index, cell_row) in self.cells.chunks(2).enumerate() {
+            let top_row = &cell_row[0];
+            let bottom_row = cell_row.get(1);
+            for col in 0..top_row.len() {
+                if !top_row[col].alive && !bottom_row.map_or(false, |row| row[col].alive) {
+                    out.queue(style::PrintStyledContent(
+                        "▀".with(self.dead_color).on(self.dead_color),
+                    ))?;
+                } else if top_row[col].alive && !bottom_row.map_or(false, |row| row[col].alive) {
+                    out.queue(style::PrintStyledContent(
+                        "▀".with(self.alive_color).on(self.dead_color),
+                    ))?;
+                } else if !top_row[col].alive && bottom_row.map_or(false, |row| row[col].alive) {
+                    out.queue(style::PrintStyledContent(
+                        "▀".with(self.dead_color).on(self.alive_color),
+                    ))?;
                 } else {
-                    out.queue(style::PrintStyledContent("█".green()))?;
+                    out.queue(style::PrintStyledContent(
+                        "▀".with(self.alive_color).on(self.alive_color),
+                    ))?;
                 }
             }
             out.queue(Print("\r\n"))?;
