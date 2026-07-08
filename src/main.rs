@@ -33,10 +33,10 @@ struct Args {
     columns: usize,
 
     /// Number of times to greet
-    #[arg(short, long)]
+    #[arg(short, long, default_value = "./starting_states/r-pentomino.cells")]
     file_path: String,
 
-    #[arg(short, long, default_value_t = 90)]
+    #[arg(short, long, default_value_t = 60)]
     tick_speed: u64,
 }
 
