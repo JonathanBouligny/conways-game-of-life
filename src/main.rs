@@ -79,7 +79,7 @@ impl PlayGrid {
     fn render(&self, out: &mut BufWriter<Stdout>) -> Result<()> {
         out.queue(crossterm::terminal::BeginSynchronizedUpdate)?;
         out.queue(crossterm::cursor::MoveTo(0, 0))?;
-        for (row_index, cell_row) in self.cells.chunks(2).enumerate() {
+        for (_row_index, cell_row) in self.cells.chunks(2).enumerate() {
             let top_row = &cell_row[0];
             let bottom_row = cell_row.get(1);
             for col in 0..top_row.len() {
@@ -250,7 +250,7 @@ impl Terminal {
 impl Drop for Terminal {
     fn drop(&mut self) {
         if !self.exited {
-            self.teardown_terminal();
+            let _ = self.teardown_terminal();
         }
     }
 }
