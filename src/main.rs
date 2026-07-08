@@ -55,17 +55,17 @@ struct Cell {
 #[derive(Debug)]
 struct PlayGrid {
     cells: Vec<Vec<Cell>>,
-    width: usize,
-    height: usize,
+    grid_cols: usize,
+    grid_rows: usize,
     grid_offsets: [(i32, i32); 8],
 }
 
 impl PlayGrid {
-    fn new(cells: Vec<Vec<Cell>>, width: usize, height: usize) -> Self {
+    fn new(cells: Vec<Vec<Cell>>, grid_cols: usize, grid_rows: usize) -> Self {
         Self {
             cells,
-            width,
-            height,
+            grid_cols,
+            grid_rows,
             grid_offsets: [
                 (-1, -1),
                 (-1, 0),
@@ -85,9 +85,9 @@ impl PlayGrid {
         for (row_index, cell_row) in self.cells.iter().enumerate() {
             for cell in cell_row {
                 if !cell.alive {
-                    out.queue(style::PrintStyledContent("██".grey()))?;
+                    out.queue(style::PrintStyledContent("█".black()))?;
                 } else {
-                    out.queue(style::PrintStyledContent("██".red()))?;
+                    out.queue(style::PrintStyledContent("█".green()))?;
                 }
             }
             out.queue(Print("\r\n"))?;
@@ -100,7 +100,7 @@ impl PlayGrid {
 
     // Must take an i32 because we have to check for negatives
     fn inbounds(&self, row: i32, col: i32) -> bool {
-        return row >= 0 && row < self.height as i32 && col >= 0 && col < self.width as i32;
+        return row >= 0 && row < self.grid_rows as i32 && col >= 0 && col < self.grid_cols as i32;
     }
 
     fn count_neighbors(&self, row: i32, col: i32) -> usize {
@@ -149,30 +149,37 @@ impl PlayGrid {
     }
 
     fn write_starting_state(&mut self, starting_state: &String) -> Result<()> {
-        let starting_state_comments_removed =
-            starting_state.lines().filter(|l| !l.starts_with('!'));
+        let starting_state_comments_removed: Vec<&str> = starting_state
+            .lines()
+            .filter(|l| !l.starts_with('!'))
+            .collect();
 
-        let largest_row = starting_state_comments_removed
+        let pattern_cols = starting_state_comments_removed
+            .iter()
             .map(|l| l.len())
             .max()
             .context("Largest row calulcation error")?;
 
-        if self.height < starting_state_comments_removed.count() || self.width < 1 {
+        let pattern_rows = starting_state_comments_removed.len();
+        if self.grid_rows < pattern_rows || self.grid_cols < pattern_cols {
             bail!(
                 "Grid is not large enough to hold selected .cell file. Grid Row Size: {} File Row Size: {} Grid Column Size: {} File Column Size: {}",
-                self.height,
-                starting_state.len(),
-                self.width,
-                largest_row
+                self.grid_rows,
+                pattern_rows,
+                self.grid_cols,
+                pattern_cols
             );
         }
 
-        for (row_index, line) in starting_state_comments_removed.enumerate() {
-            for (col_index, ch) in line.chars().enumerate() {
+        let pattern_offset_rows = (self.grid_rows - pattern_rows) / 2;
+        let pattern_offset_cols = (self.grid_cols - pattern_cols) / 2;
+
+        for (row, line) in starting_state_comments_removed.iter().enumerate() {
+            for (col, ch) in line.chars().enumerate() {
                 if ch == '.' {
-                    self.cells[row_index][col_index].alive = false;
+                    self.cells[row + pattern_offset_rows][col + pattern_offset_cols].alive = false;
                 } else if ch == 'O' {
-                    self.cells[row_index][col_index].alive = true;
+                    self.cells[row + pattern_offset_rows][col + pattern_offset_cols].alive = true;
                 } else {
                     bail!(
                         "Incorrect character found in file. File must be .cell format. https://conwaylife.com/wiki/"
@@ -226,6 +233,14 @@ impl Terminal {
 
         self.exited = true;
         Ok(())
+    }
+}
+
+impl Drop for Terminal {
+    fn drop(&mut self) {
+        if !self.exited {
+            self.teardown_terminal();
+        }
     }
 }
 
