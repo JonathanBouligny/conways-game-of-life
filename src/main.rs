@@ -20,7 +20,7 @@ use crossterm::{
 
 use clap::Parser;
 
-/// Simple program to greet a person
+// Proc macro acceptse a token stream and emits a token stream idealy mutates the token stream
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -76,13 +76,27 @@ impl PlayGrid {
         }
     }
 
+    //  *
+    // *.*
+
+    //  *
+    // ***
+
+    // O(alive) instead of O(a*b)
+    // You can parallelize all the render operations because they're all independent
     fn render(&self, out: &mut BufWriter<Stdout>) -> Result<()> {
         out.queue(crossterm::terminal::BeginSynchronizedUpdate)?;
+        // how can you update individual pixels?
+        // Do you need to move the cursor to update it or can you just update the spot?. In memory hashmap or in mapped file.
+        // Modify hashmap and then update from map you can diff from the map
+        // movable viewport
+        // cursor to move around vs updating some in memory hashmap and pasting it does crossterm do this on the backend? There are ways to render to stdout that llow you to overwrite specifically spots in the terminal in a stdout file
         out.queue(crossterm::cursor::MoveTo(0, 0))?;
         for (_row_index, cell_row) in self.cells.chunks(2).enumerate() {
             let top_row = &cell_row[0];
             let bottom_row = cell_row.get(1);
             for col in 0..top_row.len() {
+                // pull ito another function and give it a color and a coordinate. i dont need to know what the top and the bottom are at the same time
                 if !top_row[col].alive && !bottom_row.map_or(false, |row| row[col].alive) {
                     out.queue(style::PrintStyledContent(
                         "▀".with(self.dead_color).on(self.dead_color),
@@ -141,7 +155,7 @@ impl PlayGrid {
                 if self.inbounds(row_index as i32, col_index as i32) {
                     let alive_count = self.count_neighbors(row_index as i32, col_index as i32);
 
-                    // rules
+                    // rules, this into function. APply Rules function
                     if cell.alive && alive_count < 2 {
                         next_buffer.cells[row_index][col_index].alive = false;
                     } else if cell.alive && (alive_count == 2 || cell.alive && alive_count == 3) {
@@ -159,6 +173,7 @@ impl PlayGrid {
         }
     }
 
+    // TODO: Replace grid with bit field. Do the math for accessing individual bits and it takes up less memory. YOu can do hashmap or bit field you cant do both.
     fn write_starting_state(&mut self, starting_state: &String) -> Result<()> {
         let starting_state_comments_removed: Vec<&str> = starting_state
             .lines()
@@ -252,6 +267,27 @@ impl Drop for Terminal {
         if !self.exited {
             let _ = self.teardown_terminal();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    // Tokio versions of tests to run these in a worker
+    use super::*;
+
+    #[test]
+    fn inbounds_tests() {
+        let grid1 = PlayGrid::new(vec![vec![Cell::default()]], 10, 10);
+
+        let result1 = grid1.inbounds(2, 2);
+        assert_eq!(result1, true);
+
+        let result2 = grid1.inbounds(-1, 2);
+        assert_eq!(result2, false);
+
+        let result3 = grid1.inbounds(2, 11);
+        assert_eq!(result3, false);
     }
 }
 
